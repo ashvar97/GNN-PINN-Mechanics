@@ -4,10 +4,12 @@ A from-scratch NumPy deep learning framework (no PyTorch/TensorFlow) covering
 fully-connected, convolutional, and recurrent architectures. This folder
 consolidates a 3-part coursework exercise series
 (FC layers → CNN → RNN/LSTM, each building on the last) into one package:
-the earlier `Convolution-Neural-Network-main` and `Fully-connected-Neural-Networks-main`
-snapshots were strictly superseded by this one (verified file-by-file — every
-shared file here is identical to or a superset of theirs), so this is the
-single, complete, up-to-date version.
+the sibling [`../Convolution-Neural-Network`](../Convolution-Neural-Network) and
+[`../Fully-connected-Neural-Networks`](../Fully-connected-Neural-Networks) snapshots
+were strictly superseded by this one (verified file-by-file — every shared
+file here is identical to or a superset of theirs), so this is the single,
+complete, up-to-date version; the other two are kept only as untouched
+historical snapshots of the earlier exercises.
 
 ## What changed from the original coursework export
 
