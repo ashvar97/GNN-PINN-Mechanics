@@ -14,7 +14,6 @@ class FullyConnected(Base.BaseLayer):
         self.gradient_weights = None
         self.gradient_bias = None
         self._optimizer = None
-        self.temp = []
 
     @property
     def optimizer(self):
@@ -44,8 +43,6 @@ class FullyConnected(Base.BaseLayer):
        
         return dx
 
-    #From HW3 append:
-
     def initialize(self, weights_initializer, bias_initializer):
         self.weights = weights_initializer.initialize(self.weights.shape, self.input_size, self.output_size)
         self.bias = bias_initializer.initialize(self.bias.shape, 1, self.output_size)
@@ -57,5 +54,4 @@ class FullyConnected(Base.BaseLayer):
     @weights.setter
     def weights(self, weights):
         self._weights = weights
-    
-    
+

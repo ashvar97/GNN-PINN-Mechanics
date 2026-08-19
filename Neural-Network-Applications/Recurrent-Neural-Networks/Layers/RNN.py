@@ -18,13 +18,19 @@ class RNN(Base.BaseLayer):
         self.weights_y = None
         self.weights_h = None
         self.weights = self.FC_h.weights
-        self.tan_h = TanH()
         self.bptt = 0
         self.h_t = None
         self.prev_h_t = None
         self.batch_size = None
         self.optimizer = None
-        self.h_mem = []
+        # Opt-in gradient-norm clipping (None = off, matching the original
+        # behavior). Vanilla tanh RNNs trained with plain SGD over more than
+        # a handful of BPTT steps are well known to be prone to exploding
+        # gradients (Bengio et al. 1994; Pascanu et al. 2013) -- this repo
+        # had no mechanism for it at all. Set e.g. `rnn.grad_clip_norm = 5.0`
+        # to cap the global norm of each accumulated weight gradient before
+        # the optimizer step.
+        self.grad_clip_norm = None
 
     def forward(self, input_tensor):
         self.batch_size = input_tensor.shape[0]
@@ -51,10 +57,7 @@ class RNN(Base.BaseLayer):
             # x̃_t:
             input_new = np.concatenate((hidden_ax, input_ax), axis = 1)
 
-            self.h_mem.append(input_new)
-
             w_t = self.FC_h.forward(input_new)
-            input_new = np.concatenate((np.expand_dims(self.h_t[b], 0), np.expand_dims(input_tensor[b], 0)), axis=1)
             self.h_t[b+1] = TanH().forward(w_t) # h t = tanh (x̃ t · W h )
             y_t[b] = (self.FC_y.forward(self.h_t[b + 1][np.newaxis, :]))
         
@@ -67,8 +70,16 @@ class RNN(Base.BaseLayer):
 
         self.out_error = np.zeros((self.batch_size, self.input_size))
 
-        self.gradient_weights_y = np.zeros((self.hidden_size + 1, self.output_size))
-        self.gradient_weights_h = np.zeros((self.hidden_size+self.input_size+1, self.hidden_size))
+        # Zero-initialized to match FC_y/FC_h's real weight shapes so BPTT can
+        # accumulate into them below. (The original coursework export used
+        # (hidden_size + 1, ...) / (hidden_size + input_size + 1, ...) here,
+        # which assumes a bias-concatenated weight layout that FullyConnected
+        # doesn't actually use -- it keeps bias as a separate parameter -- so
+        # those shapes never matched FC_y/FC_h.gradient_weights. It went
+        # unnoticed because the loop below used `=` instead of `+=`, which
+        # silently replaced the wrong-shaped zeros every iteration anyway.)
+        self.gradient_weights_y = np.zeros_like(self.FC_y.weights)
+        self.gradient_weights_h = np.zeros_like(self.FC_h.weights)
 
         count = 0
 
@@ -82,7 +93,6 @@ class RNN(Base.BaseLayer):
         
         for b in reversed(range(self.batch_size)):
             yh_error = self.FC_y.backward(error_tensor[b][np.newaxis, :])
-            self.FC_y.input_tensor = np.hstack((self.h_t[b+1], 1))[np.newaxis, :]
 
             grad_yh = hidden_error + yh_error
             grad_hidden = grad_tanh[b]*grad_yh
@@ -91,15 +101,26 @@ class RNN(Base.BaseLayer):
             x_error = xh_error[:, self.hidden_size:(self.hidden_size + self.input_size + 1)]
             self.out_error[b] = x_error
 
-            con = np.hstack((self.h_t[b], self.input_tensor[b],1))
-            self.FC_h.input_tensor = con[np.newaxis, :]
-            # print(count, "", self.bptt)
             if count <= self.bptt:
                 self.weights_y = self.FC_y.weights
                 self.weights_h = self.FC_h.weights
-                self.gradient_weights_y = self.FC_y.gradient_weights
-                self.gradient_weights_h = self.FC_h.gradient_weights
+                # Sum (not overwrite) each timestep's local weight gradient --
+                # gradient_weights_y/h are zero-initialized above specifically
+                # so BPTT can accumulate across timesteps; a plain `=` here
+                # (as in the original coursework export) silently discards
+                # every timestep's contribution except the last one visited,
+                # which starves the network of most of its training signal
+                # and, in practice, destabilizes training on any task with a
+                # dependency longer than one step (see demo_delayed_echo.py).
+                self.gradient_weights_y = self.gradient_weights_y + self.FC_y.gradient_weights
+                self.gradient_weights_h = self.gradient_weights_h + self.FC_h.gradient_weights
             count += 1
+
+        if self.grad_clip_norm is not None:
+            for grad in (self.gradient_weights_h, self.gradient_weights_y):
+                norm = np.linalg.norm(grad)
+                if norm > self.grad_clip_norm:
+                    grad *= self.grad_clip_norm / (norm + 1e-8)
 
         if self.optimizer is not None:
             self.weights_y = self.optimizer.calculate_update(self.weights_y, self.gradient_weights_y)
