@@ -1,0 +1,8 @@
+torch==2.13.0
+torch_geometric==2.8.0
+numpy
+pandas
+matplotlib
+scikit-learn
+tqdm
+pyyaml
